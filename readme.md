@@ -10,13 +10,13 @@
 
    ![image-20240811141343202](imgs/typoraimage-20240811141343202.png)
 
-   best guess is that the kernel is decrypted, here there could be two possibilities:
+   best guess is that the kernel is decrypted,  there could be two possibilities:
 
    ​	a. bootloader `extlinux` is responsible for decrypting the kernel vmlinux 
 
    ​	b. early stage code of vmlinuz is responsible for decrypting 
 
-   considering that first stage of extlinux bootloader is two tiny, jump to the extlinux.sys file, after inspecting the extlinux.sys file, first possibilities is out
+   considering that first stage of extlinux bootloader is too tiny in size, jump to the extlinux.sys file, after inspecting the extlinux.sys file, first possibilities is out
 
 1. boot up the vm with qemu in debug mode
 
@@ -46,7 +46,7 @@ like this:
 
 ![image-20240811140113955](imgs/typoraimage-20240811140113955.png)
 
-3. from the [linux kernel boot process](https://0xax.gitbooks.io/linux-insides/content/Booting/linux-bootstrap-5.html)  and the [related code](https://elixir.bootlin.com/linux/v4.14.200/source/arch/x86/boot/compressed/misc.c#L279) we know that kernel has several boot stages, out best guess is that the decryption of vmlinux is happening right before decompress of vmlinux
+3. from the [linux kernel boot process](https://0xax.gitbooks.io/linux-insides/content/Booting/linux-bootstrap-5.html)  and the [related code](https://elixir.bootlin.com/linux/v4.14.200/source/arch/x86/boot/compressed/misc.c#L279) we know that kernel has several boot stages, out best guess is that the decryption of vmlinux is happening right before decompression of vmlinux
 
    from the boot protocol we could have some address for setting breakpoints
 
@@ -60,7 +60,7 @@ like this:
 
 
 
-4. after some time we could find the function at , which is `extract_kernel` function is `arch/x86/boot/compressed/misc.c` in source,
+4. after some time we could find the function at `sub_13C5D00`, which is `extract_kernel` function is `arch/x86/boot/compressed/misc.c` in source,
 
    the prototype of this extract_kernel function goes like this, by breaking at the entrance we can obtain the `output` and `output_len` two args, which are `decompressed kernel pointer` and `decompressed kernel data length integer` respectively
 
@@ -72,10 +72,16 @@ like this:
    				  unsigned long output_len)
    ```
 
+   change the function prototype in ida like:
+
+   ```c
+   void *__usercall sub_13C5D00@<rax>(void *rmode@<rdi>, void *heap@<rsi>, unsigned __int8 *input_data@<rdx>, unsigned int input_len@<ecx>, unsigned __int8 *output@<r8>, unsigned int output_len@<r9d>)
+   ```
+   
    ![image-20240811144240817](imgs/typoraimage-20240811144240817.png)
-
-   in this demo:
-
+   
+   in this run:
+   
    | location | type          | arguement name | value     |       |
    | -------- | ------------- | -------------- | --------- | ----- |
    | rdi      | void *        | rmode          | 0x44050   |       |
@@ -98,18 +104,18 @@ like this:
    
 
    6. inside the `extract_kernel` function select a breakpoint right after the compressed kernel is decrypted and decompressed, and right before the kernel is ELF-parsed and relocated
-
+   
       ![image-20240811151023977](imgs/typoraimage-20240811151023977.png)
-
-      after this piece of code, `input_data` is decrypted
-
+   
+      after this piece of code, `input_data` is decrypted, a header begin with `0xFD377A585A` shows up like some magic number of compression
+   
       and after the decompression, we could dump the vmlinux at 0x200000![image-20240811151442932](imgs/typoraimage-20240811151442932.png)
 
-​		in th ida python console, dump the kernel, we need two arguments, `output` and `output_len`, which we noted at the entrance of this procedure
+​		in th ida python console, dump the kernel, we need two arguments, `output` and `output_len`, noted at the entrance of this procedure
 
 ​		![image-20240811151758054](imgs/typoraimage-20240811151758054.png)
 
-7. at this point, we could use `vmlinux-to-elf` to convert the dumped kernel to elf, and the open it with ida
+7. at this point, we could use `vmlinux-to-elf` to convert the dumped kernel to elf, and the load it with ida
 
    ![image-20240811151933259](imgs/typoraimage-20240811151933259.png)
 
@@ -125,7 +131,7 @@ two functions: `forti_load` and `forti_verify` and `forti_decrypt`
 
 ![image-20240811152634882](imgs/typoraimage-20240811152634882.png)
 
-that's it!
+that's it
 
 ![image-20240811152652034](imgs/typoraimage-20240811152652034.png)
 
