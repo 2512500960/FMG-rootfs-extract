@@ -48,7 +48,7 @@ like this:
 
 3. from the [linux kernel boot process](https://0xax.gitbooks.io/linux-insides/content/Booting/linux-bootstrap-5.html)  and the [related code](https://elixir.bootlin.com/linux/v4.14.200/source/arch/x86/boot/compressed/misc.c#L279) we know that kernel has several boot stages, out best guess is that the decryption of vmlinux is happening right before decompression of vmlinux
 
-   from the boot protocol we could have some address for setting breakpoints
+   from the boot protocol we could have some addresses for setting breakpoints
 
    ![image-20240811142625213](imgs/typoraimage-20240811142625213.png)
 
@@ -127,7 +127,7 @@ but, after some digging,  looking at the cross reference to global variable `ini
 
 ![image-20240811152542225](imgs/typoraimage-20240811152542225.png)
 
-two functions: `forti_load` and `forti_verify` and `forti_decrypt`
+functions: `forti_load` and `forti_verify` and `forti_decrypt`
 
 ![image-20240811152634882](imgs/typoraimage-20240811152634882.png)
 
@@ -135,7 +135,7 @@ that's it
 
 ![image-20240811152652034](imgs/typoraimage-20240811152652034.png)
 
-8. for a shortcut, still we dump the memory right after the rootfs.gz is decrypted, 
+8. to take a shortcut, still we dump the memory right after the rootfs.gz is decrypted, 
 
 ![image-20240811154244903](imgs/typoraimage-20240811154244903.png)
 
@@ -144,3 +144,63 @@ a little typo here, the dump file is rootfs.cpio.gz  actually, this dump process
 finnaly
 
 ![image-20240811154454176](imgs/typoraimage-20240811154454176.png)
+
+#### how to locate extract_kernel function
+
+FMG version 7.6.0 as example
+
+##### first identity the kernel version:
+
+![image-20241125221253772](imgs/typoraimage-20241125221253772.png)
+
+##### lookup kernel source 
+
+mostly firmware developers use mainline kernel code as base, added their proprietary code to implement the secured bootstrap chain, but the original mainline code could still help one get better understandings of the kernel vmlinuz binary  
+
+header.S is an assembly file that would linked to kernel image at the text beginning, which run under real mode and does some preparation work for entering protected/long mode(x86 exclusively), like setting up some registers or initializing memory management.
+
+EG. https://elixir.bootlin.com/linux/v5.15.109/source/arch/x86/boot/compressed/head_64.S
+
+![image-20241125222125733](imgs/typoraimage-20241125222125733.png)
+
+to be noted that, asm code in source is written in at&t flavor, as of ida it is intel style.
+
+##### in conjecture with ida debug
+
+![image-20241125222445004](imgs/typoraimage-20241125222445004.png)
+
+to be noted, the message "Loading vmlinuz" and "Loading /rootfs.gz" is from bootloader, not the kernel.
+
+the breakpoint won't be hit until you see "ready" is on console, which is the point the bootloader transfers cpu to vmlinuz.
+
+##### **Comparing the source code with the vmlinuz**
+
+in simple terms, not in a very formal way, that on source code level, `extract_kernel` is called by `.Lrelocated`, and `.Lrelocated` is called by `startup_64` / `startup_32`
+
+![image-20241125223300346](imgs/typoraimage-20241125223300346.png)
+
+![image-20241125223730767](imgs/typoraimage-20241125223730767.png)
+
+all we need to do is in  to findout the address of these functoins the debug view
+
+![image-20241125232036523](imgs/typoraimage-20241125232036523.png)
+
+cld cli leacall pop mark the beginning
+
+![image-20241125231811074](imgs/typoraimage-20241125231811074.png)
+
+at `0x100f3` find out where `startup_64` is from register `eax`
+
+![image-20241125232114120](imgs/typoraimage-20241125232114120.png)
+
+at the end of startup_64 `0x102bd`, `.Lrelocate` is found
+
+![image-20241125232319227](imgs/typoraimage-20241125232319227.png)
+
+at this point we successfully located the `extract_kernel` from the call instruction at `0x166f7f1`
+
+![image-20241125232552530](imgs/typoraimage-20241125232552530.png)
+
+`extract_kernel` in this version of fmg is at `0x1672430`
+
+![image-20241125233225949](imgs/typoraimage-20241125233225949.png)
